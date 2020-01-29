@@ -1,0 +1,136 @@
+#!/bin/env python3
+
+import json
+import glob
+from subprocess import call
+
+import argparse
+
+from indir import indir
+
+DEBUG = False
+
+def get_sample_sheet_name():
+    possible_sample_sheet_csvs = glob.glob('*.csv')
+    if len(possible_sample_sheet_csvs) == 1:
+        return possible_sample_sheet_csvs[0]
+    elif len(possible_sample_sheet_csvs) < 1:
+        print(f"No Sample Sheet 'csv' file found!")
+        exit(1)
+    elif len(possible_sample_sheet_csvs) > 1:
+        possible_sample_sheet_csvs = glob.glob('*SampleSheet.csv')
+        if len(possible_sample_sheet_csvs) == 1:
+            return possible_sample_sheet_csvs[0]
+        else:
+            print("Check what 'csv' files are present and rectify the situation")
+            exit(1)
+
+def create_simple_csv():
+    simple_csv_name = 'simple.csv.txt'
+
+    sample_sheet = get_sample_sheet_name()
+
+    # Using "with" to open file handles causes them to be closed after the end
+    # of the following indented statements.
+    with open(simple_csv_name,'w') as fh_out:
+        with open(sample_sheet) as fh_in:
+            data_started = False
+            fh_out.write(','.join(['Lane','Sample','Index']) + "\n")
+
+            for line in fh_in:
+        
+                if data_started:
+                    fields = line.split(',')
+                    fh_out.write(','.join(['*',fields[1],fields[3]]) + "\n")
+        
+                if line.startswith('Lane'):
+                    data_started = True
+
+    return simple_csv_name
+
+def cellranger_report_starting_html_dir():
+    html_dir = glob.glob('*/outs/fastq_path/Reports/html')
+    return html_dir[0]
+
+def main(args):
+    DEBUG = args.debug
+    run_folder = args.run_folder
+
+    with indir(run_folder):
+        simple_csv_name = create_simple_csv()
+
+        # Would use f-string, but f-string doesn't handle comment characters
+        script_text = """#!/bin/bash
+#SBATCH --partition=BioCompute,Lewis,hpc5
+#SBATCH --account=warrenlab
+#SBATCH --time=2-00:00:00
+#SBATCH -J cellranger_{run_folder}
+#SBATCH -o cellranger_{run_folder}_%j_o.txt
+#SBATCH --cpus-per-task {cores}
+#SBATCH --mem {mem}G
+
+module load biocompute/biocompute-modules
+module load bcl2fastq/bcl2fastq-2.20.0.422
+module load cellranger/cellranger-3.1.0
+source /cluster/biocompute/software/cellranger/cellranger-3.1.0/sourceme.bash
+
+# Create a subfolder link to this folder (so that we can run from within the run_folder instead of above it)
+if [ ! -d {run_folder}/ ]
+then
+    ln -s ../{run_folder}
+fi
+
+cellranger mkfastq --delete-undetermined --localcores=$SLURM_CPUS_PER_TASK --run={run_folder} --processing-threads=$SLURM_CPUS_PER_TASK --csv={simple_csv_name} --qc
+""".format(run_folder=run_folder,simple_csv_name=simple_csv_name,cores=args.cores,mem=args.mem)
+
+        script_path = run_folder + 'just_demux.sbatch'
+        with open(script_path, 'w') as fh:
+            fh.write(script_text)
+
+        if DEBUG:
+            print(['sbatch',script_path])
+        else:
+            call(['sbatch',script_path])
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+                description='Create FASTQ files for sets of 10X single-cell Illumina data (more functionality forthcoming)',
+                formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+             )
+    parser.add_argument(
+        '--debug',
+        dest='debug',
+        action='store_true',
+        default=False,
+    )
+    parser.add_argument(
+        '--cores',
+        type=str,
+        default='24',
+        help='Number of cores(threads) to use to process data',
+    )
+    parser.add_argument(
+        '--mem',
+        type=str,
+        default='120',
+        help='memory (in GB) to request for processing data',
+    )
+    parser.add_argument(
+        'run_folder',
+        type=str,
+        help='Run folder containing single cell 10X data to be processed',
+    )
+
+    args = parser.parse_args()
+
+    main(args)
+
+"""
+Multi-run_folder steps:
+    1. Read
+
+Single run folder steps:
+    1. Create {simple_csv_name} from the original csv file
+    2.
+
+"""
