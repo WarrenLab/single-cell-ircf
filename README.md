@@ -36,8 +36,9 @@ This approach uses Seurat as already installed on Lewis. You can access the same
     tenX_cellranger_3.1.0_mkfastq # Convert BCL files to FASTQ files (via cellranger mkfastq)
 
 
-# TODO: Make it more accessible to general users
+# TODO: Use a config file (thus making it more accessible to general users)
 
     1. Use a config file (instead of detecting sample types by updating the pattern matching line in 10_get_vfeature.py.)
         a. List samples with corresponding sample type
         b. List SLURM account to use for data processing (currently hard-coded to "warrenlab" for this repository)
+        c. Generalize mitochondrial and ribosomal filtering (or create mito-ribo free references). One issue with this is that mitochondrial and ribosomal genes are not consistently named. In chicken, for example, I manually had to prefix mitochondrial genes with "MT-" (in the "features" file inside "bc_matrix" directories).
