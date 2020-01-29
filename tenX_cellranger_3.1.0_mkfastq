@@ -124,13 +124,3 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     main(args)
-
-"""
-Multi-run_folder steps:
-    1. Read
-
-Single run folder steps:
-    1. Create {simple_csv_name} from the original csv file
-    2.
-
-"""
