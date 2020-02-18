@@ -1,0 +1,135 @@
+#!/bin/env python3
+from random import randint
+import argparse
+import os
+import subprocess
+
+def local_replace_ext (file_name,replacement):
+    local_file_name = os.path.basename(file_name)
+    return os.path.splitext(local_file_name)[0] + replacement
+
+DEBUG = False
+
+# module loading (system specific. This works on MU's Lewis cluster)
+MODULE_LOAD_TEXT = """
+module load gffread/gffread-0.11.7
+module load star/star-2.7.3a 
+"""
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser( description='create CellRanger reference using a FASTA reference with its corresponding GTF or GFF3')
+
+    parser.add_argument('--gtf',         type=str, help='name of GTF file from ensembl (either --gtf or -gff is required)',                     )
+    parser.add_argument('--gff',         type=str, help='name of GFF3 file to be converted (either --gtf or -gff is required)',                 )
+    parser.add_argument('--fasta',       type=str, help='name of reference FASTA file to be converted',          required=True                  )
+    parser.add_argument('--cpus',        type=int, help='cpu cores to request (default 44)',                     default=44                     )
+    parser.add_argument('--mem',         type=str, help='Total RAM to allocate in GB (default: "200")',          default='490'                  )
+    parser.add_argument('--partition',   type=str, help='SLURM partition to use',                                default='CLUSTER'              )
+    parser.add_argument('--account',     type=str, help='SLURM account to use',                                  default='ircf_staff'           )
+    parser.add_argument('--genome',      type=str, help='name of genome'                                                                        )
+    parser.add_argument('--no-run',                help="Do not run script immediately after creating it.", action='store_false', dest='run'    )
+    parser.add_argument('--run',                   help="Run script immediately after creating it.",        action='store_true'                 )
+    parser.add_argument('--genomeSAindexNbases', type=str, help="Default 14 (but for small genomes should be min(14, log2(GenomeLength)/2 - 1).", default='14')
+    parser.add_argument('--pre-mRNA',              help="Convert GTF 'transcripts' to behave as one large exon (thus pre-mRNA reads map to the transcriptome, may be useful for nuclei data)",
+            action='store_true', default=False, dest='pre_mrna' )
+    parser.add_argument('--no-pre-mRNA',           help="Do not modify GTF to convert each transcripts into one 'big exon'", action='store_false', dest='pre_mrna' )
+
+    args = parser.parse_args()
+
+    if args.gtf or args.gff:
+        pass
+    else:
+        print('Either --gtf or --gff are required')
+        exit(1)
+
+    # create random "runID" so that subsequent or concurrent runs don't accidentally overwrite each other
+
+    runID    = "run{random_id}".format(random_id=randint(0,1000000))
+    gtf_first = ''
+    create_gtf = ''
+    filter_command = ''
+    filter_comment = ''
+    gxf = ''
+    if args.gtf:
+        gtf_first = args.gtf
+        gxf = args.gtf
+    elif args.gff:
+        gtf_first = local_replace_ext(args.gff,"__{runID}.converted_from_gff.gtf".format(runID=runID))
+        filter_comment += '# convert GFF to a GTF file and'
+        filter_command += "gffread {args.gff} -g {args.fasta} -T -o {gtf_first} ".format(gff=args.gff,fasta=args.fasta,gtf_first=gtf_first) 
+        gxf = args.gff
+
+    gtf_final = local_replace_ext(gxf,"__{runID}.gtf".format(runID=runID))
+
+    if args.pre_mrna:
+        genome_string = args.genome + '_pre_mRNA'
+        filter_comment += '# convert transcripts into exons, keeping only those containing "gene_id" '
+        filter_command +=  \
+        """awk 'BEGIN{FS="\\t"; OFS="\\t"} $3 == "exon" {} $3 == "transcript"{ $3="exon"; print} $3 != "exon" && $3 != "transcript" {print}' """ + \
+        "{gtf_first} > {gtf_final} ".format(gtf_first=gtf_first,gtf_final=gtf_final)
+    else:
+        genome_string = args.genome + '_mature_mRNA'
+        filter_command += "ln -s {gtf_first} {gtf_final}".format(gtf_first=gtf_first, gtf_final=gtf_final)
+
+    job_name = "create_gtf__{runID}__{genome}".format(runID=runID,genome=genome_string);
+
+    # partition here are system specific
+    filled_template = """#!/bin/bash
+#SBATCH --time=1-00:00:00
+#SBATCH --cpus-per-task={cpus}
+#SBATCH --mem={mem}G
+#SBATCH --partition={partition}
+#SBATCH --account={account}
+#SBATCH --job-name={job_name}
+#SBATCH --nodelist=compute-0-0
+#SBATCH -o {job_name}_%j_o.out
+
+#load modules
+{MODULE_LOAD_TEXT}
+
+{filter_comment}
+{filter_command}
+
+mkdir -p {genome}
+
+# Make reference that cellranger understands
+STAR --runThreadN $SLURM_CPUS_PER_TASK   \\
+     --runMode genomeGenerate            \\
+     --genomeSAindexNbases {genomeSAindexNbases} \\
+     --genomeDir {genome}                \\
+     --genomeFastaFiles {fasta}          \\
+     --sjdbGTFfile {gtf_final} 
+""".format(
+        MODULE_LOAD_TEXT=MODULE_LOAD_TEXT,
+        cpus=args.cpus,
+        fasta=args.fasta,
+        genomeSAindexNbases=args.genomeSAindexNbases,
+        genome=genome_string,
+        gtf_final=gtf_final,
+        job_name=job_name,
+        mem=args.mem,
+        partition=args.partition,
+        account=args.account,
+        filter_command=filter_command,
+        filter_comment=filter_comment,
+        )
+
+    if not DEBUG:
+        filled_template = filled_template + \
+            "# clean up"      + "\n" +      \
+            "rm " + gtf_final + "\n"
+
+    job_script_name = job_name + '.sbatch'
+    with open(job_script_name, "w") as fh:
+        fh.write(filled_template)
+
+    # Run batch file (if requested)
+    if args.run:
+        output = subprocess.run(
+                    ['sbatch', job_script_name],
+                    stdout=subprocess.PIPE
+                 )
+        print(output.stdout.decode('utf-8'))
+
+# The only "filtering" really done above is keeping only lines containing "gene_id". You can do more specific filters.
+# (See https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/advanced/references)
