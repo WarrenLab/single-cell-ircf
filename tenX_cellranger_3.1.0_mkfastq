@@ -15,7 +15,7 @@ def get_sample_sheet_name():
     if len(possible_sample_sheet_csvs) == 1:
         return possible_sample_sheet_csvs[0]
     elif len(possible_sample_sheet_csvs) < 1:
-        print(f"No Sample Sheet 'csv' file found!")
+        print("No Sample Sheet 'csv' file found!")
         exit(1)
     elif len(possible_sample_sheet_csvs) > 1:
         possible_sample_sheet_csvs = glob.glob('*SampleSheet.csv')
