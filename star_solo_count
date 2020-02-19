@@ -1,0 +1,124 @@
+#!/bin/env python3
+
+import json
+import glob
+from subprocess import call
+
+import argparse
+
+WHITELIST="/cluster/biocompute/software/cellranger/cellranger-3.1.0/cellranger-cs/3.1.0/lib/python/cellranger/barcodes/3M-february-2018.txt"
+
+DEBUG = None
+
+def get_sample_names_from(simple_csv_filename):
+    samples = []
+    with open(simple_csv_filename) as fh:
+        data_started = False
+        for line in fh:
+            if data_started:
+                fields = line.split(',')
+                samples.append(fields[1])
+            if line.startswith('Lane'):
+                data_started = True
+    return samples
+
+def main(args):
+    config = args.config
+
+    DEBUG = args.debug
+
+    with open(config) as json_data:
+        config = json.load(json_data)
+        if DEBUG:
+            print(config)
+
+        genome_path = config["reference"]
+
+        if DEBUG:
+            print("genome_path: " + genome_path)
+
+        fastq_dir = config["fastq_dir"]
+
+        samples = config["samples"]
+        if DEBUG:
+            print(samples)
+
+        for sample in samples:
+            out_dir   = sample + "_out.dir"
+            fastqs_forward = glob.glob(fastq_dir + '/' + sample + '/*_R1_001.fastq.gz') 
+            fastqs_reverse = glob.glob(fastq_dir + '/' + sample + '/*_R2_001.fastq.gz') 
+            
+            R1_string = ','.join(fastqs_forward)
+            R2_string = ','.join(fastqs_reverse)
+
+            if DEBUG:
+                print(R1_string)
+                print(R2_string)
+            
+            script_text = """#!/bin/bash
+#SBATCH --partition=BioCompute,Lewis,hpc5
+#SBATCH --account=warrenlab
+#SBATCH --time=2-00:00:00
+#SBATCH -J STARsolo_{sample}
+#SBATCH -o STARsolo_{sample}_%j_o.txt
+#SBATCH --cpus-per-task {cores}
+#SBATCH --mem {mem}G
+module load bcl2fastq/bcl2fastq-2.20.0.422
+module load star/star-2.7.3a
+
+# Needed for V3 chemistry: --soloUMIlen 12  (default is 10 for V2)
+
+mkdir -p {out_dir} 
+
+STAR --soloType CB_UMI_Simple                 \
+     --soloCBwhitelist {WHITELIST}            \
+     --soloUMIlen 12                          \
+     --genomeDir {genome_path}                \
+     --runThreadN $SLURM_CPUS_PER_TASK        \
+     --outFileNamePrefix {out_dir}            \
+     --outTmpDir {sample}_STAR_temp_directory \
+     --readFilesCommand pigz -d -c            \
+     --readFilesIn {R2_string} {R1_string}
+""".format(sample=sample,genome_path=genome_path,mem=args.mem,cores=args.cores,R2_string=R2_string,R1_string=R1_string,WHITELIST=WHITELIST,out_dir=out_dir)
+
+            script_path = sample + '.sbatch'
+            with open(script_path, 'w') as fh:
+                fh.write(script_text)
+    
+            if DEBUG:
+                print(['sbatch',script_path])
+            else:
+                call(['sbatch',script_path])
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+                description='Create FASTQ files for sets of 10X single-cell Illumina data (more functionality forthcoming)'
+             )
+    parser.add_argument(
+        'config',
+        type=str,
+        help='Name of JSON config file containing a dictionary of sets of lists of run folders to process',
+    )
+    parser.add_argument(
+        '--debug',
+        dest='debug',
+        action='store_true',
+        default=False,
+    )
+    parser.add_argument(
+        '--cores',
+        type=str,
+        default='24',
+        help='Number of cores(threads) to use to process data',
+    )
+    parser.add_argument(
+        '--mem',
+        type=str,
+        default='120',
+        help='GB of memory to use to process data',
+    )
+
+    args = parser.parse_args()
+
+    main(args)
