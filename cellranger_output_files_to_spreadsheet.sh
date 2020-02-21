@@ -19,4 +19,4 @@ join -t, -1 1 -2 1 numbered_features.csv feature_sorted_matrix.csv | cut -d, -f 
 
 # Remove temp files
 rm -f barcode_sorted_matrix.csv feature_sorted_matrix.csv numbered_barcodes.csv numbered_features.csv
-python3 flat_to_table.py final_matrix.csv
+flat_to_table.py final_matrix.csv
