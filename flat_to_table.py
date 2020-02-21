@@ -59,7 +59,7 @@ def main(args):
         barcode_list.sort()
 
         # Print header (i.e. first column is "gene_symbol", remaining columns are barcodes)
-        fh_out.write("\t".join(["gene_symbol_id_combo","gene_symbol","gene_id","\t".join(barcode_list)]) + "\n")
+        fh_out.write("\t".join(["gene_symbol_id_combo","gene_symbol","gene_id","total_counts","\t".join(barcode_list)]) + "\n")
 
         for gene_symbol_id_combo in gene_list:
 
@@ -67,21 +67,20 @@ def main(args):
                 print(counts[gene_symbol_id_combo])
 
             # Get gene counts for all barcodes for this gene
-            values = dictionary_slice(counts[gene_symbol_id_combo],barcode_list,"0")
-
+            values = dictionary_slice(
+                         counts[gene_symbol_id_combo],   # dictionary containg all the counts for this gene_symbol_id_combo
+                         barcode_list,                   # list of all barcodes (previously sorted)
+                         "0"                             # Default of "0" for missing values
+                     )
+            total_gene_counts = sum(values)
             # Print out gene identifcation info and gene counts for each barcode
             fh_out.write(
                 "\t".join([
                         gene_symbol_id_combo,
                         gene_symbol_for[gene_symbol_id_combo],
                         gene_id_for[gene_symbol_id_combo],
-                        "\t".join(
-                            dictionary_slice(
-                                counts[gene_symbol_id_combo],   # dictionary containg all the counts for this gene_symbol_id_combo
-                                barcode_list,                   # list of all barcodes (previously sorted)
-                                "0"                             # Default of "0" for missing values
-                            )
-                        )
+                        total_gene_counts,
+                        "\t".join(values)
                     ])
                 + "\n"
             )
