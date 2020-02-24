@@ -72,14 +72,12 @@ def main(args):
                          barcode_list,                   # list of all barcodes (previously sorted)
                          "0"                             # Default of "0" for missing values
                      )
-            total_gene_counts = sum(values)
             # Print out gene identifcation info and gene counts for each barcode
             fh_out.write(
                 "\t".join([
                         gene_symbol_id_combo,
                         gene_symbol_for[gene_symbol_id_combo],
                         gene_id_for[gene_symbol_id_combo],
-                        total_gene_counts,
                         "\t".join(values)
                     ])
                 + "\n"
