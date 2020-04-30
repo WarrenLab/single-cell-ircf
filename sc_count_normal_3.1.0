@@ -3,6 +3,8 @@
 import json
 import glob
 from subprocess import call
+from pathlib import Path
+
 
 import argparse
 
@@ -43,8 +45,22 @@ def main(args):
 
             for run_folder in datasets[dataset]["run_folders"]:
                 flowcell = datasets[dataset]["run_folders"][run_folder]
-                fastq_path =  run_folder + '/' + flowcell + '/outs/fastq_path'
-                fastq_dirs.append(fastq_path)
+                fastq_path_string_short = run_folder + '/' + flowcell + '/outs/fastq_path'
+                fastq_path_string = fastq_path_string_short + '/' + flowcell
+                fastq_path = Path(fastq_path_string)
+                if fastq_path.is_dir():
+                    pass
+                # Try shorter if longer one didn't work
+                else:
+                    fastq_path_string = fastq_path_string_short
+                    fastq_path = Path(fastq_path_string)
+                    if fastq_path.is_dir():
+                        pass
+                    else:
+                        print("Cannot find FASTQ path")
+                        exit(1)
+
+                fastq_dirs.append(fastq_path_string)
 
             fastqs_string = ','.join(fastq_dirs)
             if DEBUG:
@@ -57,7 +73,7 @@ def main(args):
             for sample in samples:
                     script_text = """#!/bin/bash
 #SBATCH --partition=BioCompute,Lewis,hpc5
-#SBATCH --account=warrenlab
+#SBATCH --account={account}
 #SBATCH --time=2-00:00:00
 #SBATCH -J cellranger_count_{sample}
 #SBATCH -o cellranger_count_{sample}_%j_o.txt
@@ -76,7 +92,7 @@ cellranger count \
     --jobmode local \
     --localcores $SLURM_CPUS_PER_TASK \
     --localmem {mem}
-""".format(sample=sample,fastqs_string=fastqs_string,transcriptome_path=transcriptome_path,mem=args.mem,cores=args.cores)
+""".format(sample=sample,fastqs_string=fastqs_string,transcriptome_path=transcriptome_path,mem=args.mem,cores=args.cores,account=args.account)
 
                     script_path = 'dataset_' + dataset + '__sample' + sample + '.sbatch'
                     with open(script_path, 'w') as fh:
@@ -114,6 +130,18 @@ if __name__ == '__main__':
         type=str,
         default='120',
         help='GB of memory to use to process data',
+    )
+    parser.add_argument(
+        '--pre_mRNA',
+        type=str,
+        default=False,
+        help='Whether this is a "pre_mRNA" count job',
+    )
+    parser.add_argument(
+        '--account',
+        type=str,
+        default="warrenlab",
+        help='SLURM account towards which time should be debited',
     )
 
     args = parser.parse_args()
