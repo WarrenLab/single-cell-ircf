@@ -13,9 +13,9 @@ grep -f $GENE_LIST per_cluster_DE.edgeR.csv  | grep -v -w NA >> per_cluster_DE.s
 grep -f $GENE_LIST per_cluster_DE.MAST.csv   | grep -v -w NA >> per_cluster_DE.selected.MAST.csv
 grep -f $GENE_LIST per_cluster_DE.wilcox.csv | grep -v -w NA >> per_cluster_DE.selected.wilcox.csv
 
-/storage/htc/warrenlab/scripts/filter_by_p_value.py per_cluster_DE.selected.edgeR.csv  >> per_cluster_DE.selected_p05.edgeR.csv
-/storage/htc/warrenlab/scripts/filter_by_p_value.py per_cluster_DE.selected.MAST.csv   >> per_cluster_DE.selected_p05.MAST.csv
-/storage/htc/warrenlab/scripts/filter_by_p_value.py per_cluster_DE.selected.wilcox.csv >> per_cluster_DE.selected_p05.wilcox.csv
+/storage/htc/warrenlab/scripts/filter_by_p_value.py per_cluster_DE.selected.edgeR.csv  > per_cluster_DE.selected_p05.edgeR.csv
+/storage/htc/warrenlab/scripts/filter_by_p_value.py per_cluster_DE.selected.MAST.csv   > per_cluster_DE.selected_p05.MAST.csv
+/storage/htc/warrenlab/scripts/filter_by_p_value.py per_cluster_DE.selected.wilcox.csv > per_cluster_DE.selected_p05.wilcox.csv
 
 /storage/htc/warrenlab/scripts/csv2xlsx -f -s ',' -o selected_results.xlsx -m per_cluster_DE.selected_p05.edgeR.csv per_cluster_DE.selected_p05.MAST.csv per_cluster_DE.selected_p05.wilcox.csv per_cluster_DE.selected.edgeR.csv per_cluster_DE.selected.MAST.csv per_cluster_DE.selected.wilcox.csv all_markers.selected.csv
 /storage/htc/warrenlab/scripts/csv2xlsx -f -s ',' -o all_results.xlsx -m per_cluster_DE.edgeR.csv per_cluster_DE.MAST.csv per_cluster_DE.wilcox.csv all_markers.selected.csv all_markers.csv
