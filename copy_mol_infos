@@ -1,0 +1,12 @@
+#!/bin/env python3
+
+import os
+import csv
+
+mol_info_str = 'molecule_info'
+
+os.system('mkdir -p ' + mol_info_str)
+with open('aggregation.csv') as mol_info_filename:
+    reader = csv.DictReader(mol_info_filename)
+    for row in reader:
+        os.system('cp ' + row['molecule_h5'] + ' ' + mol_info_str + '/' + mol_info_str + '.' + row['library_id'] + '.h5')
