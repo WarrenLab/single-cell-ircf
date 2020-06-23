@@ -25,16 +25,19 @@ if __name__ == '__main__':
     parser.add_argument('--fasta',       type=str, help='name of reference FASTA file to be converted',          required=True                  )
     parser.add_argument('--cpus',        type=int, help='cpu cores to request (default 12)',                     default=24                     )
     parser.add_argument('--mem',         type=str, help='Total RAM to allocate in GB (default: "200")',          default='300'                  )
-    parser.add_argument('--ref-version', type=str, help="reference version (defaults to 'version-unspecified')", default='version-unspecified'  )
-    parser.add_argument('--partition',   type=str, help='partition to use',                                      default='Lewis,hpc5,BioCompute')
+    parser.add_argument('--partition',   type=str, help='partition to use',                                      default='Lewis,hpc5,hpc6,BioCompute')
     parser.add_argument('--genome',      type=str, help='name of genome'                                                                        )
     parser.add_argument('--no-run',                help="Do not run script immediately after creating it.", action='store_false', dest='run'    )
     parser.add_argument('--run',                   help="Run script immediately after creating it.",        action='store_true'                 )
     parser.add_argument('--pre-mRNA',              help="Convert GTF 'transcripts' to behave as one large exon (thus pre-mRNA reads map to the transcriptome, may be useful for nuclei data)",
             action='store_true', default=False, dest='pre_mrna' )
     parser.add_argument('--no-pre-mRNA',           help="Do not modify GTF to convert each transcripts into one 'big exon'", action='store_false', dest='pre_mrna' )
+    parser.add_argument('--account',               help="SLURM account to use", default='warrenlab' )
 
     args = parser.parse_args()
+
+    # Specify that the MT genes may be renamed
+    genome = args.genome + ".MT-renamed"
 
     if args.gtf or args.gff:
         pass
@@ -42,10 +45,10 @@ if __name__ == '__main__':
         print('Either --gtf or --gff are required')
         exit(1)
 
-    # create random "runID" so that subsequent or concurrent runs don't accidentally overwrite each other
-
-    runID    = f"run{randint(0,1000000)}"
-    job_name = f"create_gtf__{runID}__{args.genome}";
+    job_name = f"create_gtf__{args.genome}";
+    if args.pre_mrna:
+        job_name += ".pre-mRNA"
+        genome += ".pre-mRNA"
     gtf_first = ''
     create_gtf = ''
     filter_command = ''
@@ -55,13 +58,23 @@ if __name__ == '__main__':
         gtf_first = args.gtf
         gxf = args.gtf
     elif args.gff:
-        gtf_first = local_replace_ext(args.gff,f"__{runID}.converted_from_gff.gtf")
+        gtf_first = local_replace_ext(args.gff,f".converted_from_gff.gtf")
         filter_comment += '# convert GFF to a GTF file and'
         filter_command += f"gffread {args.gff} -g {args.fasta} -T -o {gtf_first} "
         gxf = args.gff
 
-    gtf_temp  = local_replace_ext(gxf,f"__{runID}.only_lines_with_gene_id.gtf")
-    gtf_final = local_replace_ext(gxf,f"__{runID}.filtered.gtf")
+    base_gxf = ""
+
+    if args.pre_mrna:
+        base_gxf = local_replace_ext(gxf,".pre-mRNA.x")
+    else:
+        base_gxf = local_replace_ext(gxf,".x")
+
+    gtf_temp          = local_replace_ext(base_gxf,f".only_lines_with_gene_id.gtf")
+    gtf_MT_prepended  = local_replace_ext(gtf_temp,f".MT-renamed.gtf")
+    gtf_final         = local_replace_ext(gtf_MT_prepended,f".filtered.gtf")
+
+    log_final         = local_replace_ext(base_gxf,".STAR.log")
 
     if args.pre_mrna:
         filter_comment += '# convert transcripts into exons, keeping only those containing "gene_id" '
@@ -72,13 +85,16 @@ if __name__ == '__main__':
         filter_comment += '# keep only those GTF records containing "gene_id" '
         filter_command +=  f"grep -w gene_id {gtf_first} > {gtf_temp} "
 
+    #For every gene name in the "MT" chromosome, prepend "MT-" if it isn't already present 
+    prepend_MT_command = f"mt_prepend_gtf.py {gtf_temp} > {gtf_MT_prepended}"
+
     # partition here are system specific
     filled_template = """#!/bin/bash
 #SBATCH --time=1-00:00:00
 #SBATCH --cpus-per-task={cpus}
 #SBATCH --mem={mem}G
-#SBATCH --partition=BioCompute,hpc5,Lewis
-#SBATCH --account=warrenlab
+#SBATCH --partition={partition}
+#SBATCH --account={account}
 #SBATCH --job-name={job_name}
 #SBATCH -o {job_name}_%j_o.out
 
@@ -87,37 +103,67 @@ if __name__ == '__main__':
 
 {filter_comment}
 {filter_command}
+{prepend_MT_command}
 
 # Convert to style preferred by cellranger
 #  (in some cases, it only changes LF to CRLF
-cellranger mkgtf {gtf_temp} {gtf_final}
+cellranger mkgtf {gtf_MT_prepended} {gtf_final}           \
+                 --attribute=gene_biotype:protein_coding  \
+                 --attribute=gene_biotype:lincRNA         \
+                 --attribute=gene_biotype:antisense       \
+                 --attribute=gene_biotype:IG_LV_gene      \
+                 --attribute=gene_biotype:IG_V_gene       \
+                 --attribute=gene_biotype:IG_V_pseudogene \
+                 --attribute=gene_biotype:IG_D_gene       \
+                 --attribute=gene_biotype:IG_J_gene       \
+                 --attribute=gene_biotype:IG_J_pseudogene \
+                 --attribute=gene_biotype:IG_C_gene       \
+                 --attribute=gene_biotype:IG_C_pseudogene \
+                 --attribute=gene_biotype:TR_V_gene       \
+                 --attribute=gene_biotype:TR_V_pseudogene \
+                 --attribute=gene_biotype:TR_D_gene       \
+                 --attribute=gene_biotype:TR_J_gene       \
+                 --attribute=gene_biotype:TR_J_pseudogene \
+                 --attribute=gene_biotype:TR_C_gene
 
 # Make reference that cellranger understands
 cellranger mkref --nthreads=$SLURM_CPUS_PER_TASK   \\
                  --genome={genome}                 \\
                  --fasta={fasta}                   \\
-                 --genes={gtf_final}               \\
-                 --ref-version={ref_version}
+                 --genes={gtf_final}
+
+# Rename STAR log file
+mv Log.out {log_final}
 """.format(
+        #module info
         MODULE_LOAD_TEXT=MODULE_LOAD_TEXT,
+
+        #SLURM
         cpus=args.cpus,
-        fasta=args.fasta,
-        genome=args.genome,
-        gtf_final=gtf_final,
-        gtf_first=gtf_first,
-        gtf_temp=gtf_temp,
-        job_name=job_name,
+        account=args.account,
+        partition=args.partition,
         mem=args.mem,
+        job_name=job_name,
+
+        #Genome info, files
+        genome=genome,
+        fasta=args.fasta,
+        gtf_MT_prepended=gtf_MT_prepended,
+        gtf_final=gtf_final,
+
+        #Previously build bash commands
         filter_command=filter_command,
         filter_comment=filter_comment,
-        ref_version=args.ref_version,
+        prepend_MT_command=prepend_MT_command,
+
+        log_final=log_final
         )
 
     if not DEBUG:
         filled_template = filled_template + \
             "# clean up"      + "\n" +      \
             "rm " + gtf_temp  + "\n" +      \
-            "rm " + gtf_final + "\n"
+            "rm " + gtf_MT_prepended  + "\n"
 
     job_script_name = job_name + '.sbatch'
     with open(job_script_name, "w") as fh:
