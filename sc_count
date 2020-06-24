@@ -1,0 +1,115 @@
+#!/bin/env python3
+"""Create FASTQ files for sets of 10X single-cell Illumina data (more functionality forthcoming)
+"""
+
+import argparse
+import json
+from subprocess import call
+
+#def get_sample_names_from(simple_csv_filename):
+#    samples = []
+#    with open(simple_csv_filename) as file_handle:
+#        data_started = False
+#        for line in file_handle:
+#            if data_started:
+#                fields = line.split(',')
+#                samples.append(fields[1])
+#            if line.startswith('Lane'):
+#                data_started = True
+#    return samples
+
+def main(args):
+    """main method of script"""
+    with open(args.config) as json_data:
+        config = json.load(json_data)
+        if args.debug:
+            print(config)
+
+        for sample in config["samples"]:
+            script_text = """#!/bin/bash
+#SBATCH --partition={partition}
+#SBATCH --account={account}
+#SBATCH --time=2-00:00:00
+#SBATCH -J cellranger_count_{sample}
+#SBATCH -o cellranger_count_{sample}_%j_o.txt
+#SBATCH --cpus-per-task {cores}
+#SBATCH --mem {mem}G
+module load biocompute/biocompute-modules
+module load bcl2fastq/bcl2fastq-2.20.0.422
+module load cellranger/cellranger-3.1.0
+source /cluster/biocompute/software/cellranger/cellranger-3.1.0/sourceme.bash
+
+cellranger count \
+    --id sample_{sample} \
+    --transcriptome {transcriptome_path} \
+    --fastqs {fastq_dir} \
+    --sample {sample} \
+    --jobmode local \
+    --localcores $SLURM_CPUS_PER_TASK \
+    --localmem {mem}
+""".format(
+        sample=sample,
+        fastq_dir=config["fastq_dir"],
+        transcriptome_path=config["reference"],
+        mem=args.mem,
+        cores=args.cores,
+        account=args.account,
+        partition=args.partition
+        )
+
+            script_path = 'sample__' + sample + '.sbatch'
+            with open(script_path, 'w') as file_handle:
+                file_handle.write(script_text)
+
+            if args.debug:
+                print(['sbatch', script_path])
+            else:
+                call(['sbatch', script_path])
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+        description=__doc__
+    )
+    parser.add_argument(
+        'config',
+        type=str,
+        help='JSON config file',
+    )
+    parser.add_argument(
+        '--debug',
+        dest='debug',
+        action='store_true',
+        default=False,
+    )
+    parser.add_argument(
+        '--cores',
+        type=str,
+        default='48',
+        help='Number of cores(threads) to use to process data',
+    )
+    parser.add_argument(
+        '--mem',
+        type=str,
+        default='300',
+        help='GB of memory to use to process data',
+    )
+    parser.add_argument(
+        '--pre_mRNA',
+        type=str,
+        default=False,
+        help='Whether this is a "pre_mRNA" count job',
+    )
+    parser.add_argument(
+        '--account',
+        type=str,
+        default="warrenlab",
+        help='SLURM account towards which time should be debited',
+    )
+    parser.add_argument(
+        '--partition',
+        type=str,
+        default='hpc6',
+        help='SLURM partition to use',
+    )
+
+    main(parser.parse_args())
