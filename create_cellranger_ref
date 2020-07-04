@@ -10,8 +10,6 @@ def local_replace_ext (file_name,replacement):
     local_file_name = os.path.basename(file_name)
     return os.path.splitext(local_file_name)[0] + replacement
 
-DEBUG = False
-
 # module loading (system specific. This works on MU's Lewis cluster)
 MODULE_LOAD_TEXT = """module load biocompute/biocompute-modules
 module load gffread/gffread-0.11.3
@@ -33,6 +31,7 @@ if __name__ == '__main__':
             action='store_true', default=False, dest='pre_mrna' )
     parser.add_argument('--no-pre-mRNA',           help="Do not modify GTF to convert each transcripts into one 'big exon'", action='store_false', dest='pre_mrna' )
     parser.add_argument('--account',               help="SLURM account to use", default='warrenlab' )
+    parser.add_argument('--debug',default=False,   help="Turn on debugging messages", action='store_true')
 
     args = parser.parse_args()
 
@@ -71,7 +70,9 @@ if __name__ == '__main__':
         base_gxf = local_replace_ext(gxf,".x")
 
     gtf_temp          = local_replace_ext(base_gxf,f".only_lines_with_gene_id.gtf")
+    gtf_extracted_name = local_replace_ext(gtf_temp,f".extracted_name.gtf")
     gtf_MT_prepended  = local_replace_ext(gtf_temp,f".MT-renamed.gtf")
+
     gtf_final         = local_replace_ext(gtf_MT_prepended,f".filtered.gtf")
 
     log_final         = local_replace_ext(base_gxf,".STAR.log")
@@ -85,8 +86,11 @@ if __name__ == '__main__':
         filter_comment += '# keep only those GTF records containing "gene_id" '
         filter_command +=  f"grep -w gene_id {gtf_first} > {gtf_temp} "
 
+    # Extract gene names from gene_id, if needed
+    extract_name_command = f"extract_name_embedded_in_gene_id.py {gtf_temp} > {gtf_extracted_name}"
+
     #For every gene name in the "MT" chromosome, prepend "MT-" if it isn't already present 
-    prepend_MT_command = f"mt_prepend_gtf.py {gtf_temp} > {gtf_MT_prepended}"
+    prepend_MT_command = f"mt_prepend_gtf.py {gtf_extracted_name} > {gtf_MT_prepended}"
 
     # partition here are system specific
     filled_template = """#!/bin/bash
@@ -103,6 +107,7 @@ if __name__ == '__main__':
 
 {filter_comment}
 {filter_command}
+{extract_name_command}
 {prepend_MT_command}
 
 # Convert to style preferred by cellranger
@@ -155,14 +160,16 @@ mv Log.out {log_final}
         filter_command=filter_command,
         filter_comment=filter_comment,
         prepend_MT_command=prepend_MT_command,
+        extract_name_command=extract_name_command,
 
         log_final=log_final
         )
 
-    if not DEBUG:
+    if not args.debug:
         filled_template = filled_template + \
             "# clean up"      + "\n" +      \
             "rm " + gtf_temp  + "\n" +      \
+            "rm " + gtf_extracted_name + "\n" +      \
             "rm " + gtf_MT_prepended  + "\n"
 
     job_script_name = job_name + '.sbatch'
