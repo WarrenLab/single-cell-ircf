@@ -108,7 +108,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--partition',
         type=str,
-        default='hpc6',
+        default='BioCompute,hpc5,hpc6',
         help='SLURM partition to use',
     )
 
